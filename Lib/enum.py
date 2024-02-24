@@ -1615,6 +1615,30 @@ class Flag(Enum, boundary=STRICT):
     __ror__ = __or__
     __rxor__ = __xor__
 
+    def isdisjoint(self, other):
+        if not isinstance(other, self.__class__):
+            other = self.__class__(other)
+        return not self & other
+    
+    def issubset(self, other):
+        if not isinstance(other, self.__class__):
+            other = self.__class__(other)
+        return len(self) <= len(other) and all(flag in self for flag in other)
+    
+    def issuperset(self, other):
+        if not isinstance(other, self.__class__):
+            other = self.__class__(other)
+        return len(self) >= len(other) and all(flag in other for flag in self)
+    
+    def issubset_proper(self, other):
+        if not isinstance(other, self.__class__):
+            other = self.__class__(other)
+        return len(self) < len(other) and all(flag in self for flag in other)
+    
+    def issuperset_proper(self, other):
+        if not isinstance(other, self.__class__):
+            other = self.__class__(other)
+        return len(self) > len(other) and all(flag in other for flag in self)
 
 class IntFlag(int, ReprEnum, Flag, boundary=KEEP):
     """
