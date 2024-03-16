@@ -72,6 +72,7 @@
 
 __all__ = [
     # public symbols
+    "CDATA",
     "Comment",
     "dump",
     "Element", "ElementTree",
@@ -858,7 +859,9 @@ def _serialize_xml(write, elem, qnames, namespaces,
     else:
         tag = qnames[tag]
         if tag is None:
-            if text:
+            if isinstance(text, CDATA):
+                write(text.content)
+            elif text:
                 write(_escape_cdata(text))
             for e in elem:
                 _serialize_xml(write, e, qnames, None,
@@ -886,7 +889,9 @@ def _serialize_xml(write, elem, qnames, namespaces,
                     write(" %s=\"%s\"" % (qnames[k], v))
             if text or len(elem) or not short_empty_elements:
                 write(">")
-                if text:
+                if isinstance(text, CDATA):
+                    write(text.content)
+                elif text:
                     write(_escape_cdata(text))
                 for e in elem:
                     _serialize_xml(write, e, qnames, None,
@@ -894,8 +899,11 @@ def _serialize_xml(write, elem, qnames, namespaces,
                 write("</" + tag + ">")
             else:
                 write(" />")
-    if elem.tail:
-        write(_escape_cdata(elem.tail))
+    tail = elem.tail
+    if isinstance(tail, CDATA):
+        write(tail.content)
+    elif tail:
+        write(_escape_cdata(tail))
 
 HTML_EMPTY = {"area", "base", "basefont", "br", "col", "embed", "frame", "hr",
               "img", "input", "isindex", "link", "meta", "param", "source",
@@ -2062,7 +2070,7 @@ try:
     # (see tests)
     _Element_Py = Element
 
-    # Element, SubElement, ParseError, TreeBuilder, XMLParser, _set_factories
+    # CDATA, Element, SubElement, ParseError, TreeBuilder, XMLParser, _set_factories
     from _elementtree import *
     from _elementtree import _set_factories
 except ImportError:

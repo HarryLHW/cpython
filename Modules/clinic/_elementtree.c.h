@@ -1219,4 +1219,73 @@ skip_optional:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=8fdaa17d3262800a input=a9049054013a1b77]*/
+
+PyDoc_STRVAR(_elementtree_CDATA___init____doc__,
+"CDATA(data, use_cdata_section=True)\n"
+"--\n"
+"\n"
+"Element text/tail CDATA wrapper");
+
+static int
+_elementtree_CDATA___init___impl(CDATAObject *self, PyObject *data,
+                                 int use_cdata_section);
+
+static int
+_elementtree_CDATA___init__(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+    int return_value = -1;
+    #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
+
+    #define NUM_KEYWORDS 2
+    static struct {
+        PyGC_Head _this_is_not_used;
+        PyObject_VAR_HEAD
+        PyObject *ob_item[NUM_KEYWORDS];
+    } _kwtuple = {
+        .ob_base = PyVarObject_HEAD_INIT(&PyTuple_Type, NUM_KEYWORDS)
+        .ob_item = { &_Py_ID(data), &_Py_ID(use_cdata_section), },
+    };
+    #undef NUM_KEYWORDS
+    #define KWTUPLE (&_kwtuple.ob_base.ob_base)
+
+    #else  // !Py_BUILD_CORE
+    #  define KWTUPLE NULL
+    #endif  // !Py_BUILD_CORE
+
+    static const char * const _keywords[] = {"data", "use_cdata_section", NULL};
+    static _PyArg_Parser _parser = {
+        .keywords = _keywords,
+        .fname = "CDATA",
+        .kwtuple = KWTUPLE,
+    };
+    #undef KWTUPLE
+    PyObject *argsbuf[2];
+    PyObject * const *fastargs;
+    Py_ssize_t nargs = PyTuple_GET_SIZE(args);
+    Py_ssize_t noptargs = nargs + (kwargs ? PyDict_GET_SIZE(kwargs) : 0) - 1;
+    PyObject *data;
+    int use_cdata_section = 1;
+
+    fastargs = _PyArg_UnpackKeywords(_PyTuple_CAST(args)->ob_item, nargs, kwargs, NULL, &_parser, 1, 2, 0, argsbuf);
+    if (!fastargs) {
+        goto exit;
+    }
+    if (!PyUnicode_Check(fastargs[0])) {
+        _PyArg_BadArgument("CDATA", "argument 'data'", "str", fastargs[0]);
+        goto exit;
+    }
+    data = fastargs[0];
+    if (!noptargs) {
+        goto skip_optional_pos;
+    }
+    use_cdata_section = PyObject_IsTrue(fastargs[1]);
+    if (use_cdata_section < 0) {
+        goto exit;
+    }
+skip_optional_pos:
+    return_value = _elementtree_CDATA___init___impl((CDATAObject *)self, data, use_cdata_section);
+
+exit:
+    return return_value;
+}
+/*[clinic end generated code: output=342c1480fade32e4 input=a9049054013a1b77]*/
