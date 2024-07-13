@@ -665,6 +665,14 @@ PyAPI_FUNC(Py_UCS4) _PyUnicode_ToUppercase(
     Py_UCS4 ch       /* Unicode character */
     );
 
+PyAPI_FUNC(Py_UCS4) _PyUnicode_ToLowercaseSingleChar(
+    Py_UCS4 ch       /* Unicode character */
+    );
+
+PyAPI_FUNC(Py_UCS4) _PyUnicode_ToUppercaseSingleChar(
+    Py_UCS4 ch       /* Unicode character */
+    );
+
 PyAPI_FUNC(Py_UCS4) _PyUnicode_ToTitlecase(
     Py_UCS4 ch       /* Unicode character */
     );
@@ -717,11 +725,12 @@ static inline int Py_UNICODE_ISSPACE(Py_UCS4 ch) {
 
 #define Py_UNICODE_ISLOWER(ch) _PyUnicode_IsLowercase(ch)
 #define Py_UNICODE_ISUPPER(ch) _PyUnicode_IsUppercase(ch)
+#define Py_UNICODE_ISCASED(ch) _PyUnicode_IsCased(ch)
 #define Py_UNICODE_ISTITLE(ch) _PyUnicode_IsTitlecase(ch)
 #define Py_UNICODE_ISLINEBREAK(ch) _PyUnicode_IsLinebreak(ch)
 
-#define Py_UNICODE_TOLOWER(ch) _PyUnicode_ToLowercase(ch)
-#define Py_UNICODE_TOUPPER(ch) _PyUnicode_ToUppercase(ch)
+#define Py_UNICODE_TOLOWER(ch) _PyUnicode_ToLowercaseSingleChar(ch)
+#define Py_UNICODE_TOUPPER(ch) _PyUnicode_ToUppercaseSingleChar(ch)
 #define Py_UNICODE_TOTITLE(ch) _PyUnicode_ToTitlecase(ch)
 
 #define Py_UNICODE_ISDECIMAL(ch) _PyUnicode_IsDecimalDigit(ch)

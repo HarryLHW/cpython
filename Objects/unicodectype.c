@@ -206,6 +206,38 @@ Py_UCS4 _PyUnicode_ToLowercase(Py_UCS4 ch)
     return ch + ctype->lower;
 }
 
+/* Returns the uppercase Unicode characters corresponding to ch or just
+   ch if no uppercase mapping is known. */
+
+Py_UCS4 _PyUnicode_ToUppercaseSingleChar(Py_UCS4 ch)
+{
+    const _PyUnicode_TypeRecord *ctype = gettyperecord(ch);
+
+    if (ctype->flags & EXTENDED_CASE_MASK) {
+        int n = ctype->upper >> 24;
+        if (n > 1)
+            return ch;
+        return _PyUnicode_ExtendedCase[ctype->upper & 0xFFFF];
+    }
+    return ch + ctype->upper;
+}
+
+/* Returns the lowercase Unicode character corresponding to ch or just
+   ch if no lowercase mapping is known or the loweercase mapping
+   contains more than 1 characters. */
+Py_UCS4 _PyUnicode_ToLowercaseSingleChar(Py_UCS4 ch)
+{
+    const _PyUnicode_TypeRecord *ctype = gettyperecord(ch);
+
+    if (ctype->flags & EXTENDED_CASE_MASK) {
+        int n = ctype->lower >> 24;
+        if (n > 1)
+            return ch;
+        return _PyUnicode_ExtendedCase[ctype->lower & 0xFFFF];
+    }
+    return ch + ctype->lower;
+}
+
 int _PyUnicode_ToLowerFull(Py_UCS4 ch, Py_UCS4 *res)
 {
     const _PyUnicode_TypeRecord *ctype = gettyperecord(ch);

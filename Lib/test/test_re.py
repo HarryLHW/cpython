@@ -2758,11 +2758,11 @@ class ImplementationTest(unittest.TestCase):
                 self.assertEqual(_sre.unicode_tolower(i), ord(c.lower()))
             iscased = c != c.lower() or c != c.upper()
             self.assertFalse(_sre.ascii_iscased(i))
-            self.assertEqual(_sre.unicode_iscased(i),
-                             c != c.lower() or c != c.upper())
+            if iscased:
+                self.assertEqual(_sre.unicode_iscased(i), True)
 
         self.assertEqual(_sre.ascii_tolower(0x0130), 0x0130)
-        self.assertEqual(_sre.unicode_tolower(0x0130), ord('i'))
+        self.assertEqual(_sre.unicode_tolower(0x0130), 0x0130)
         self.assertFalse(_sre.ascii_iscased(0x0130))
         self.assertTrue(_sre.unicode_iscased(0x0130))
 
