@@ -2242,10 +2242,29 @@ A yield expression with augmented assignment.
 
 Check some syntax errors for yield expressions:
 
+>>> f=lambda: yield 1
+Traceback (most recent call last):
+  ...
+SyntaxError: invalid syntax
+
+>>> f=lambda: (yield 1)
+
 >>> f=lambda: (yield 1),(yield 2)
 Traceback (most recent call last):
   ...
 SyntaxError: 'yield' outside function
+
+>>> f=lambda: yield from range(1)
+Traceback (most recent call last):
+  ...
+SyntaxError: invalid syntax
+
+>>> f=lambda: (yield from range(1))
+
+>>> f=lambda: (yield from range(1)), (yield from range(2))
+Traceback (most recent call last):
+  ...
+SyntaxError: 'yield from' outside function
 
 >>> def f(): x = yield = y
 Traceback (most recent call last):
