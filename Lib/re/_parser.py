@@ -115,6 +115,12 @@ class SubPattern:
             data = []
         self.data = data
         self.width = None
+    
+    def __repr__(self) -> str:
+        return f'SubPattern{repr(self)}'
+
+    def __str__(self):
+        return repr(self)
 
     def dump(self, level=0):
         seqtypes = (tuple, list)
@@ -179,6 +185,8 @@ class SubPattern:
         if self.width is not None:
             return self.width
         lo = hi = 0
+        for i in self.data:
+            assert len(i) == 2, self.data
         for op, av in self.data:
             if op is BRANCH:
                 i = MAXWIDTH
@@ -307,6 +315,113 @@ class Tokenizer:
         if not name.isidentifier():
             msg = "bad character in group name %r" % name
             raise self.error(msg, len(name) + offset)
+
+class PrefixTree:
+    def __init__(self):
+        self.prefixes = []
+        self.was_literal = False
+        self.branch_count = 0
+        self.branch = None
+        self.prefix_start = -1
+
+    def add_helper(self, item):
+        op, av = item
+        if not self.prefixes:
+            next_prefix = PrefixTree()
+            self.was_literal = op is LITERAL
+            if op is LITERAL:
+                self.prefixes.append({av: next_prefix})
+            else:
+                self.prefixes.append((item, next_prefix))
+            return next_prefix
+        elif op is LITERAL:
+            if self.was_literal:
+                last = self.prefixes[-1]
+                if av in last:
+                    last_value = last[av]
+                    # last_value[2] = -1
+                    return last_value
+                else:
+                    next_prefix = PrefixTree()
+                    last[av] = next_prefix
+                    return next_prefix
+            else:
+                self.was_literal = True
+                next_prefix = PrefixTree()
+                self.prefixes.append({av: next_prefix})
+                return next_prefix
+        else:
+            last = self.prefixes[-1]
+            if not self.was_literal and last[0] == item:
+                # last[3] = -1
+                return last[1]
+            else:
+                self.was_literal = False
+                next_prefix = PrefixTree()
+                self.prefixes.append((item, next_prefix))
+                return next_prefix
+    
+    def add(self, branch, prefix_length):
+        next_prefix = self.add_helper(branch[prefix_length])
+        next_prefix.branch_count += 1
+        next_prefix.branch = branch
+        next_prefix.prefix_start = prefix_length
+        return next_prefix
+    
+    def get_branches(self, state):
+        for prefix in self.prefixes:
+            # print(prefix)
+            if isinstance(prefix, dict):  # literal
+                if len(prefix) == 1:
+                    av, next_prefix = prefix.popitem()
+                    if next_prefix.branch_count == 1:
+                        yield SubPattern(state, next_prefix.branch[next_prefix.prefix_start:] if next_prefix.prefix_start else next_prefix.branch)
+                        continue
+                    item = [(LITERAL, av)]
+                else:
+                    branches = []
+                    for av, next_prefix in prefix.items():
+                        if next_prefix.branch_count == 1:
+                            branches.append(next_prefix.branch[next_prefix.prefix_start:] if next_prefix.prefix_start else next_prefix.branch)
+                            continue
+                        branch = [(LITERAL, av)]
+                        next_branches = list(next_prefix.get_branches(state))
+                        if len(next_branches) == 1:
+                            branch.append(next_branches[0])
+                        elif next_branches:
+                            branch.append((BRANCH, (None, next_branches)))
+                        branches.append(branch)
+                    yield SubPattern(state, [(BRANCH, (None, branches))])
+                    continue
+            else:  # non-literal
+                opav, next_prefix = prefix
+                if next_prefix.branch_count == 1:
+                    yield next_prefix.branch[next_prefix.prefix_start:] if next_prefix.prefix_start else next_prefix.branch
+                    continue
+                item = [opav]
+            branches = list(next_prefix.get_branches(state))
+            # if len(branches) == 1:
+            #     item.append(SubPattern(state, branches[0]))
+            # elif branches:
+            #     item.append((BRANCH, (None, branches)))
+            item.append((BRANCH, (None, branches)))
+            yield SubPattern(state, item)
+
+    def make_subpattern(self, state):
+        branches = list(self.get_branches(state))
+        # print('branches', branches)
+        if len(branches) == 1:
+            if isinstance(branches[0].data, SubPattern):
+                return branches[0].data
+            return branches[0]
+        return SubPattern(state, [(BRANCH, (None, branches))])
+
+    def __repr__(self):
+        return f'Tree({self.branch_count}, {self.branch if self.branch_count == 1 else None}, {self.prefix_start}, {repr(self.prefixes)})'
+    
+    def __str__(self) -> str:
+        return repr(self)
+
 
 def _class_escape(source, escape):
     # handle escape code inside character class
@@ -466,47 +581,69 @@ def _parse_sub(source, state, verbose, nested):
     if len(items) == 1:
         return items[0]
 
-    subpattern = SubPattern(state)
-
     # check if all items share a common prefix
-    while True:
-        prefix = None
-        for item in items:
-            if not item:
-                break
-            if prefix is None:
-                prefix = item[0]
-            elif item[0] != prefix:
-                break
-        else:
-            # all subitems start with a common "prefix".
-            # move it out of the branch
-            for item in items:
-                del item[0]
-            subpattern.append(prefix)
-            continue # check next one
-        break
+    # LITERAL prefix can combine unordered, while non-LITERAL can combine iff the last one is the same.
+    prefix_root = PrefixTree()
+    items_length = len(items)
+    item_prefixes = [prefix_root for _ in range(items_length)]
+    finished = [False for _ in range(items_length)]
+    for prefix_length in range(max(map(len, items))):
+        count = 0
+        for i in range(items_length):
+            item = items[i]
+            if len(item) <= prefix_length:
+                continue
 
-    # check if the branch can be replaced by a character set
-    set = []
-    for item in items:
-        if len(item) != 1:
+            if finished[i]:
+                continue
+            prefix = item_prefixes[i]
+            next_prefix = prefix.add(item, prefix_length)
+            item_prefixes[i] = next_prefix
+            count += 1
+        if not count:
             break
-        op, av = item[0]
-        if op is LITERAL:
-            set.append((op, av))
-        elif op is IN and av[0][0] is not NEGATE:
-            set.extend(av)
-        else:
-            break
-    else:
-        # we can store this as a character set instead of a
-        # branch (the compiler may optimize this even more)
-        subpattern.append((IN, _uniq(set)))
-        return subpattern
+        for i in range(items_length):
+            item = items[i]
+            if len(item) <= prefix_length:
+                continue
+            
 
-    subpattern.append((BRANCH, (None, items)))
-    return subpattern
+            prefix = item_prefixes[i]
+            if finished[i]:
+                continue
+            elif prefix is not prefix_root and prefix.branch_count == 1:
+                finished[i] = True
+
+    # print(repr(prefix_root))
+    _subpattern = prefix_root.make_subpattern(state)
+    # print(f"my implementation:\n{_subpattern}")
+
+    # # check if the branch can be replaced by a character set
+    # set = []
+    # for item in items:
+    #     if len(item) != 1:
+    #         break
+    #     op, av = item[0]
+    #     if op is LITERAL:
+    #         set.append((op, av))
+    #     elif op is IN and av[0][0] is not NEGATE:
+    #         set.extend(av)
+    #     else:
+    #         break
+    # else:
+    #     # we can store this as a character set instead of a
+    #     # branch (the compiler may optimize this even more)
+    #     subpattern.append((IN, _uniq(set)))
+    #     return subpattern
+
+    # subpattern = SubPattern(state)
+    # subpattern.append((BRANCH, (None, items)))
+    # print('tree', prefix_root)
+    # print('my    implementation', _subpattern)
+    # print('their implementation', subpattern)
+    # print('------------------------')
+    # print(subpattern)
+    return _subpattern
 
 def _parse(source, state, verbose, nested, first=False):
     # parse a simple pattern

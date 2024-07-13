@@ -286,7 +286,11 @@ def finditer(pattern, string, flags=0):
 
 def compile(pattern, flags=0):
     "Compile a regular expression pattern, returning a Pattern object."
-    return _compile(pattern, flags)
+    try:
+        return _compile(pattern, flags)
+    except:
+        print(repr(pattern), flags)
+        raise
 
 def purge():
     "Clear the regular expression caches"
