@@ -967,6 +967,26 @@ set_update_iterable_lock_held(PySetObject *so, PyObject *other)
     }
 
     PyObject *key;
+
+    /* If our table is empty, and other is a set-like iterable, we can use set_insert_clean() */
+    if (so->fill == 0) {
+        if (PyAnyRange_Check(so) | PyDictViewSetIter_Check(so) || PySetIter_Check(so)) {
+            setentry *newtable = so->table;
+            size_t newmask = (size_t)so->mask;
+            while ((key = PyIter_Next(it)) != NULL) {
+                Py_hash_t hash = _PyObject_HashFast(key);
+                if (hash == -1) {
+                    return -1;
+                }
+                set_insert_clean(newtable, newmask, key, hash);
+            }
+            Py_DECREF(it);
+            if (PyErr_Occurred())
+                return -1;
+            return 0;
+        }
+    }
+
     while ((key = PyIter_Next(it)) != NULL) {
         if (set_add_key(so, key)) {
             Py_DECREF(it);
