@@ -990,6 +990,11 @@ set_update_lock_held(PySetObject *so, PyObject *other)
     else if (PyDict_CheckExact(other)) {
         return set_update_dict_lock_held(so, other);
     }
+    else if (PyDictKeys_Check(other)) {
+        PyObject *dict = (PyObject *)((_PyDictViewObject *)other)->dv_dict;
+        if (PyDict_CheckExact(dict))
+            return set_update_dict_lock_held(so, dict);
+    }
     return set_update_iterable_lock_held(so, other);
 }
 
@@ -1011,6 +1016,16 @@ set_update_local(PySetObject *so, PyObject *other)
         rv = set_update_dict_lock_held(so, other);
         Py_END_CRITICAL_SECTION();
         return rv;
+    }
+    else if (PyDictKeys_Check(other)) {
+        PyObject *dict = (PyObject *)((_PyDictViewObject *)other)->dv_dict;
+        if (PyDict_CheckExact(dict)) {
+            int rv;
+            Py_BEGIN_CRITICAL_SECTION(dict);
+            rv = set_update_dict_lock_held(so, dict);
+            Py_END_CRITICAL_SECTION();
+            return rv;
+        }
     }
     return set_update_iterable_lock_held(so, other);
 }
@@ -1035,13 +1050,21 @@ set_update_internal(PySetObject *so, PyObject *other)
         Py_END_CRITICAL_SECTION2();
         return rv;
     }
-    else {
-        int rv;
-        Py_BEGIN_CRITICAL_SECTION(so);
-        rv = set_update_iterable_lock_held(so, other);
-        Py_END_CRITICAL_SECTION();
-        return rv;
+    else if (PyDictKeys_Check(other)) {
+        PyObject *dict = (PyObject *)((_PyDictViewObject *)other)->dv_dict;
+        if (PyDict_CheckExact(dict)) {
+            int rv;
+            Py_BEGIN_CRITICAL_SECTION2(so, dict);
+            rv = set_update_dict_lock_held(so, dict);
+            Py_END_CRITICAL_SECTION2();
+            return rv;
+        }
     }
+    int rv;
+    Py_BEGIN_CRITICAL_SECTION(so);
+    rv = set_update_iterable_lock_held(so, other);
+    Py_END_CRITICAL_SECTION();
+    return rv;
 }
 
 /*[clinic input]
