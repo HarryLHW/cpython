@@ -20,6 +20,10 @@ PyAPI_DATA(PyTypeObject) PyRangeIter_Type;
 PyAPI_DATA(PyTypeObject) PyLongRangeIter_Type;
 
 #define PyRange_Check(op) Py_IS_TYPE((op), &PyRange_Type)
+#define PyRangeIter_Check(op) Py_IS_TYPE((op), &PyRangeIter_Type)
+#define PyLongRangeIter_Check(op) Py_IS_TYPE((op), &PyLongRangeIter_Type)
+#define PyAnyRange_Check(op) \
+    (PyRange_Check(op) || PyRangeIter_Check(op) || PyLongRangeIter_Check(op))
 
 #ifdef __cplusplus
 }
