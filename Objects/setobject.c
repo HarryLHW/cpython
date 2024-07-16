@@ -349,6 +349,8 @@ set_discard_entry(PySetObject *so, PyObject *key, Py_hash_t hash)
     setentry *entry;
     PyObject *old_key;
 
+    if (so->used == 0)
+        return DISCARD_NOTFOUND;
     entry = set_lookkey(so, key, hash);
     if (entry == NULL)
         return -1;
@@ -385,6 +387,8 @@ set_contains_key(PySetObject *so, PyObject *key)
 static int
 set_discard_key(PySetObject *so, PyObject *key)
 {
+    if (so->used == 0)
+        return DISCARD_NOTFOUND;
     Py_hash_t hash = _PyObject_HashFast(key);
     if (hash == -1) {
         return -1;
@@ -923,6 +927,8 @@ set_update_dict_lock_held(PySetObject *so, PyObject *other)
     * that there will be no (or few) overlapping keys.
     */
     Py_ssize_t dictsize = PyDict_GET_SIZE(other);
+    if (dictsize == 0)
+        return 0;
     if ((so->fill + dictsize)*5 >= so->mask*3) {
         if (set_table_resize(so, (so->used + dictsize)*2) != 0) {
             return -1;
@@ -933,6 +939,19 @@ set_update_dict_lock_held(PySetObject *so, PyObject *other)
     PyObject *key;
     PyObject *value;
     Py_hash_t hash;
+
+    /* If our table is empty, we can use set_insert_clean() */
+    if (so->fill == 0) {
+        setentry *newtable = so->table;
+        size_t newmask = (size_t)so->mask;
+        so->fill = dictsize;
+        FT_ATOMIC_STORE_SSIZE_RELAXED(so->used, dictsize);
+        while (_PyDict_Next(other, &pos, &key, &value, &hash)) {
+            set_insert_clean(newtable, newmask, Py_NewRef(key), hash);
+        }
+        return 0;
+    }
+
     while (_PyDict_Next(other, &pos, &key, &value, &hash)) {
         if (set_add_entry(so, key, hash)) {
             return -1;
@@ -952,6 +971,26 @@ set_update_iterable_lock_held(PySetObject *so, PyObject *other)
     }
 
     PyObject *key;
+
+    /* If our table is empty, and other is a set-like iterable, we can use set_insert_clean() */
+    if (so->fill == 0) {
+        if (PyAnyRange_Check(so) | PyDictViewSetIter_Check(so) || PySetIter_Check(so)) {
+            setentry *newtable = so->table;
+            size_t newmask = (size_t)so->mask;
+            while ((key = PyIter_Next(it)) != NULL) {
+                Py_hash_t hash = _PyObject_HashFast(key);
+                if (hash == -1) {
+                    return -1;
+                }
+                set_insert_clean(newtable, newmask, key, hash);
+            }
+            Py_DECREF(it);
+            if (PyErr_Occurred())
+                return -1;
+            return 0;
+        }
+    }
+
     while ((key = PyIter_Next(it)) != NULL) {
         if (set_add_key(so, key)) {
             Py_DECREF(it);
@@ -969,11 +1008,13 @@ set_update_iterable_lock_held(PySetObject *so, PyObject *other)
 static int
 set_update_lock_held(PySetObject *so, PyObject *other)
 {
+    PyObject *dict;
+
     if (PyAnySet_Check(other)) {
         return set_merge_lock_held(so, other);
     }
-    else if (PyDict_CheckExact(other)) {
-        return set_update_dict_lock_held(so, other);
+    else if (dict = PyDictKeys_TryGetDict(other), PyDict_CheckExact(dict)) {
+        return set_update_dict_lock_held(so, dict);
     }
     return set_update_iterable_lock_held(so, other);
 }
@@ -983,6 +1024,8 @@ static int
 set_update_local(PySetObject *so, PyObject *other)
 {
     assert(Py_REFCNT(so) == 1);
+    PyObject *dict;
+
     if (PyAnySet_Check(other)) {
         int rv;
         Py_BEGIN_CRITICAL_SECTION(other);
@@ -990,10 +1033,10 @@ set_update_local(PySetObject *so, PyObject *other)
         Py_END_CRITICAL_SECTION();
         return rv;
     }
-    else if (PyDict_CheckExact(other)) {
+    else if (dict = PyDictKeys_TryGetDict(other), PyDict_CheckExact(dict)) {
         int rv;
-        Py_BEGIN_CRITICAL_SECTION(other);
-        rv = set_update_dict_lock_held(so, other);
+        Py_BEGIN_CRITICAL_SECTION(dict);
+        rv = set_update_dict_lock_held(so, dict);
         Py_END_CRITICAL_SECTION();
         return rv;
     }
@@ -1003,6 +1046,8 @@ set_update_local(PySetObject *so, PyObject *other)
 static int
 set_update_internal(PySetObject *so, PyObject *other)
 {
+    PyObject *dict;
+
     if (PyAnySet_Check(other)) {
         if (Py_Is((PyObject *)so, other)) {
             return 0;
@@ -1013,10 +1058,10 @@ set_update_internal(PySetObject *so, PyObject *other)
         Py_END_CRITICAL_SECTION2();
         return rv;
     }
-    else if (PyDict_CheckExact(other)) {
+    else if (dict = PyDictKeys_TryGetDict(other), PyDict_CheckExact(dict)) {
         int rv;
-        Py_BEGIN_CRITICAL_SECTION2(so, other);
-        rv = set_update_dict_lock_held(so, other);
+        Py_BEGIN_CRITICAL_SECTION2(so, dict);
+        rv = set_update_dict_lock_held(so, dict);
         Py_END_CRITICAL_SECTION2();
         return rv;
     }
@@ -1692,6 +1737,7 @@ set_difference(PySetObject *so, PyObject *other)
 {
     PyObject *result;
     PyObject *key;
+    PyObject *dict;
     Py_hash_t hash;
     setentry *entry;
     Py_ssize_t pos = 0, other_size;
@@ -1700,7 +1746,8 @@ set_difference(PySetObject *so, PyObject *other)
     if (PyAnySet_Check(other)) {
         other_size = PySet_GET_SIZE(other);
     }
-    else if (PyDict_CheckExact(other)) {
+    else if (dict = PyDictKeys_TryGetDict(other), PyDict_CheckExact(dict)) {
+        other = dict;
         other_size = PyDict_GET_SIZE(other);
     }
     else {
@@ -1866,6 +1913,9 @@ set_symmetric_difference_update_set(PySetObject *so, PySetObject *other)
     _Py_CRITICAL_SECTION_ASSERT_OBJECT_LOCKED(so);
     _Py_CRITICAL_SECTION_ASSERT_OBJECT_LOCKED(other);
 
+    if (so->used == 0)
+        return set_merge_lock_held(so, (PyObject *)other);
+
     Py_ssize_t pos = 0;
     setentry *entry;
     while (set_next(other, &pos, &entry)) {
@@ -1903,11 +1953,15 @@ set_symmetric_difference_update(PySetObject *so, PyObject *other)
     if (Py_Is((PyObject *)so, other)) {
         return set_clear(so, NULL);
     }
+    if (so->used == 0) {
+        return set_update_internal(so, other);
+    }
 
     int rv;
-    if (PyDict_CheckExact(other)) {
-        Py_BEGIN_CRITICAL_SECTION2(so, other);
-        rv = set_symmetric_difference_update_dict(so, other);
+    PyObject *dict = PyDictKeys_TryGetDict(other);
+    if (PyDict_CheckExact(dict)) {
+        Py_BEGIN_CRITICAL_SECTION2(so, dict);
+        rv = set_symmetric_difference_update_dict(so, dict);
         Py_END_CRITICAL_SECTION2();
     }
     else if (PyAnySet_Check(other)) {
