@@ -952,6 +952,39 @@ set_update_iterable_lock_held(PySetObject *so, PyObject *other)
     }
 
     PyObject *key;
+
+    /* If our table is empty, and the iterator is known to
+       return unique values, we can use set_insert_clean() */
+    if (so->fill == 0) {
+        if (PyAnyRangeIter_Check(it) || PyDictViewSetIter_Check(it) ||
+            PySetIter_Check(it)) {
+            printf("shortcut\n");
+            setentry *newtable = so->table;
+            printf("get\n");
+            size_t newmask = (size_t)so->mask;
+            while ((key = PyIter_Next(it)) != NULL) {
+                Py_hash_t hash = _PyObject_HashFast(key);
+                printf("hash\n");
+                if (hash == -1) {
+                    printf("hash fail\n");
+                    return -1;
+                }
+                printf("set_inset_clean\n");
+                set_insert_clean(newtable, newmask, key, hash);
+                if ((size_t)so->fill*5 < mask*3)
+                    return 0;
+                return set_table_resize(so, so->used>50000 ? so->used*2 : so->used*4);
+            }
+            Py_DECREF(it);
+            if (PyErr_Occurred()) {
+                printf("fail\n");
+                return -1;
+            }
+            printf("success\n");
+            return 0;
+        }
+    }
+
     while ((key = PyIter_Next(it)) != NULL) {
         if (set_add_key(so, key)) {
             Py_DECREF(it);

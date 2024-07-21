@@ -95,6 +95,18 @@ PyAPI_DATA(PyTypeObject) PyDictRevIterKey_Type;
 PyAPI_DATA(PyTypeObject) PyDictRevIterItem_Type;
 PyAPI_DATA(PyTypeObject) PyDictRevIterValue_Type;
 
+#define PyDictIterKey_Check(op) PyObject_TypeCheck((op), &PyDictIterKey_Type)
+#define PyDictIterValue_Check(op) PyObject_TypeCheck((op), &PyDictIterValue_Type)
+#define PyDictIterItem_Check(op) PyObject_TypeCheck((op), &PyDictIterItem_Type)
+
+#define PyDictRevIterKey_Check(op) PyObject_TypeCheck((op), &PyDictRevIterKey_Type)
+#define PyDictRevIterItem_Check(op) PyObject_TypeCheck((op), &PyDictRevIterItem_Type)
+#define PyDictRevIterValue_Check(op) PyObject_TypeCheck((op), &PyDictRevIterValue_Type)
+
+#define PyDictViewSetIter_Check(op) \
+    (PyDictIterKey_Check(op) || PyDictIterItem_Check(op) || \
+     PyDictRevIterKey_Check(op) || PyDictRevIterItem_Check(op))
+
 
 #ifndef Py_LIMITED_API
 #  define Py_CPYTHON_DICTOBJECT_H
