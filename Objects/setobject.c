@@ -949,6 +949,19 @@ set_update_dict_lock_held(PySetObject *so, PyObject *other)
     PyObject *key;
     PyObject *value;
     Py_hash_t hash;
+
+    /* If our table is empty, we can use set_insert_clean() */
+    if (so->fill == 0) {
+        setentry *newtable = so->table;
+        size_t newmask = (size_t)so->mask;
+        so->fill = dictsize;
+        FT_ATOMIC_STORE_SSIZE_RELAXED(so->used, dictsize);
+        while (_PyDict_Next(other, &pos, &key, &value, &hash)) {
+            set_insert_clean(newtable, newmask, Py_NewRef(key), hash);
+        }
+        return 0;
+    }
+
     while (_PyDict_Next(other, &pos, &key, &value, &hash)) {
         if (set_add_entry(so, key, hash)) {
             return -1;

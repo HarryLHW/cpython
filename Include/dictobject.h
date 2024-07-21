@@ -85,6 +85,9 @@ PyAPI_DATA(PyTypeObject) PyDictItems_Type;
 # define PyDictViewSet_Check(op) \
     (PyDictKeys_Check(op) || PyDictItems_Check(op))
 
+#define PyDictKeys_TryGetDict(op) \
+    (PyDictKeys_Check((op)) ? (PyObject *)(((_PyDictViewObject *)(op))->dv_dict) : (op))
+
 /* Dictionary (key, value, items) iterators */
 
 PyAPI_DATA(PyTypeObject) PyDictIterKey_Type;
@@ -94,6 +97,18 @@ PyAPI_DATA(PyTypeObject) PyDictIterItem_Type;
 PyAPI_DATA(PyTypeObject) PyDictRevIterKey_Type;
 PyAPI_DATA(PyTypeObject) PyDictRevIterItem_Type;
 PyAPI_DATA(PyTypeObject) PyDictRevIterValue_Type;
+
+#define PyDictIterKey_Check(op) PyObject_TypeCheck((op), &PyDictIterKey_Type)
+#define PyDictIterValue_Check(op) PyObject_TypeCheck((op), &PyDictIterValue_Type)
+#define PyDictIterItem_Check(op) PyObject_TypeCheck((op), &PyDictIterItem_Type)
+
+#define PyDictRevIterKey_Check(op) PyObject_TypeCheck((op), &PyDictRevIterKey_Type)
+#define PyDictRevIterItem_Check(op) PyObject_TypeCheck((op), &PyDictRevIterItem_Type)
+#define PyDictRevIterValue_Check(op) PyObject_TypeCheck((op), &PyDictRevIterValue_Type)
+
+#define PyDictViewSetIter_Check(op) \
+    (PyDictIterKey_Check(op) || PyDictIterItem_Check(op) || \
+     PyDictRevIterKey_Check(op) || PyDictRevIterItem_Check(op))
 
 
 #ifndef Py_LIMITED_API
