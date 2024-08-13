@@ -1236,4 +1236,89 @@ skip_optional:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=bd28eba33d9c1f25 input=a9049054013a1b77]*/
+
+PyDoc_STRVAR(cdata_new__doc__,
+"CDATA(data, section=True)\n"
+"--\n"
+"\n"
+"CDATA string subclass");
+
+static PyObject *
+cdata_new_impl(PyTypeObject *type, PyObject *data, int section);
+
+static PyObject *
+cdata_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
+{
+    PyObject *return_value = NULL;
+    #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
+
+    #define NUM_KEYWORDS 2
+    static struct {
+        PyGC_Head _this_is_not_used;
+        PyObject_VAR_HEAD
+        PyObject *ob_item[NUM_KEYWORDS];
+    } _kwtuple = {
+        .ob_base = PyVarObject_HEAD_INIT(&PyTuple_Type, NUM_KEYWORDS)
+        .ob_item = { &_Py_ID(data), &_Py_ID(section), },
+    };
+    #undef NUM_KEYWORDS
+    #define KWTUPLE (&_kwtuple.ob_base.ob_base)
+
+    #else  // !Py_BUILD_CORE
+    #  define KWTUPLE NULL
+    #endif  // !Py_BUILD_CORE
+
+    static const char * const _keywords[] = {"data", "section", NULL};
+    static _PyArg_Parser _parser = {
+        .keywords = _keywords,
+        .fname = "CDATA",
+        .kwtuple = KWTUPLE,
+    };
+    #undef KWTUPLE
+    PyObject *argsbuf[2];
+    PyObject * const *fastargs;
+    Py_ssize_t nargs = PyTuple_GET_SIZE(args);
+    Py_ssize_t noptargs = nargs + (kwargs ? PyDict_GET_SIZE(kwargs) : 0) - 1;
+    PyObject *data;
+    int section = 1;
+
+    fastargs = _PyArg_UnpackKeywords(_PyTuple_CAST(args)->ob_item, nargs, kwargs, NULL, &_parser, 1, 2, 0, argsbuf);
+    if (!fastargs) {
+        goto exit;
+    }
+    if (!PyUnicode_Check(fastargs[0])) {
+        _PyArg_BadArgument("CDATA", "argument 'data'", "str", fastargs[0]);
+        goto exit;
+    }
+    data = fastargs[0];
+    if (!noptargs) {
+        goto skip_optional_pos;
+    }
+    section = PyObject_IsTrue(fastargs[1]);
+    if (section < 0) {
+        goto exit;
+    }
+skip_optional_pos:
+    return_value = cdata_new_impl(type, data, section);
+
+exit:
+    return return_value;
+}
+
+PyDoc_STRVAR(_elementtree_CDATA_escape__doc__,
+"escape($self, /)\n"
+"--\n"
+"\n");
+
+#define _ELEMENTTREE_CDATA_ESCAPE_METHODDEF    \
+    {"escape", (PyCFunction)_elementtree_CDATA_escape, METH_NOARGS, _elementtree_CDATA_escape__doc__},
+
+static PyObject *
+_elementtree_CDATA_escape_impl(CDATAObject *self);
+
+static PyObject *
+_elementtree_CDATA_escape(CDATAObject *self, PyObject *Py_UNUSED(ignored))
+{
+    return _elementtree_CDATA_escape_impl(self);
+}
+/*[clinic end generated code: output=bf5c953911c23e01 input=a9049054013a1b77]*/

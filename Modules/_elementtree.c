@@ -4252,36 +4252,102 @@ PyUnicode_Format(PyUnicode_FromString("<![CDATA[%s]]>"), \
 REPLACE(REPLACE(REPLACE(data, "&", "&amp;"), "<", "&lt;"), ">", "&gt;")
 
 
-static PyObject *
-cdata_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
-{
-    PyObject *argsbuf[2];
-    PyObject * const *fastargs;
-    Py_ssize_t nargs = PyTuple_GET_SIZE(args);
-    Py_ssize_t noptargs = nargs + (kwargs ? PyDict_GET_SIZE(kwargs) : 0) - 1;
-    PyObject *data;
-    int cdata_section = 1;
+/*[clinic input]
+@classmethod
+_elementtree.CDATA.__new__ as cdata_new
+    data: object(subclass_of="&PyUnicode_Type")
+    section: bool = True
 
-    fastargs = _PyArg_UnpackKeywords(_PyTuple_CAST(args)->ob_item, nargs, kwargs, NULL, &_parser, 1, 2, 0, argsbuf);
-    if (!fastargs) {
-        goto exit;
+CDATA string subclass
+
+[clinic start generated code]*/
+
+static PyObject *
+cdata_new_impl(PyTypeObject *type, PyObject *data, int section)
+/*[clinic end generated code: output=074932b850b448b8 input=c135e6fc71537d6e]*/
+{
+    PyObject *args = PyTuple_New(1);
+    PyTuple_SetItem(args, 0, data);
+    PyObject *kwds = PyDict_New();
+    PyObject *cdata = PyUnicode_Type.tp_new(type, args, kwds);
+    CDATAObject *self = (CDATAObject *)cdata;
+    if (section) {
+        self->sections_length = 2;
+        self->sections = PyMem_New(Py_ssize_t, 2);
+        self->sections[0] = 0;
+        self->sections[1] = PyUnicode_GetLength(data);
     }
-    if (!PyUnicode_Check(fastargs[0])) {
-        _PyArg_BadArgument("CDATA", "argument 'data'", "str", fastargs[0]);
-        goto exit;
+    else {
+        self->sections_length = 0;
+        self->sections = NULL;
     }
-    data = fastargs[0];
-    if (!noptargs) {
-        goto skip_optional_pos;
-    }
-    cdata_section = PyObject_IsTrue(fastargs[1]);
-    if (cdata_section < 0) {
-        goto exit;
-    }
-    CDATAObject *cdata = PyUnicode_Type.tp_new(type, args, kwds);
-    return (PyObject *)cdata;
+    return cdata;
 }
 
+
+/*[clinic input]
+_elementtree.CDATA.escape
+
+[clinic start generated code]*/
+
+static PyObject *
+_elementtree_CDATA_escape_impl(CDATAObject *self)
+/*[clinic end generated code: output=6f477f24c6147f37 input=2c244688aae66402]*/
+{
+    Py_ssize_t i, start, end;
+    Py_ssize_t last = 0;
+    Py_ssize_t n = self->sections_length;
+    PyObject *seq = PyList_New(0);
+    Py_ssize_t size = PyUnicode_GetLength((PyObject *) self);
+    PyUnicodeObject *segment;
+    for (i = 0; i < n; i++) {
+        start = self->sections[i];
+        end = self->sections[++i];
+        if (start > last) {
+            segment = PyUnicode_Substring((PyObject *)self, last, start);
+            PyList_Append(seq, ESCAPE_CDATA(segment));
+        }
+        segment = PyUnicode_Substring((PyObject *)self, start, end);
+        PyList_Append(seq, FORMAT_CDATA(segment));
+        last = end;
+    }
+    if (size > last) {
+        segment = PyUnicode_Substring((PyObject *)self, last, size);
+        PyList_Append(seq, ESCAPE_CDATA(segment));
+    }
+    return PyUnicode_Join(PyUnicode_FromString(""), seq);
+}
+
+
+#define CDATA_Check(st, op) PyObject_TypeCheck(op, (st)->CDATA_Type)
+
+
+static PyObject*
+cdata_concat(PyObject *left, PyObject *right)
+{
+    PyTypeObject *tp = Py_TYPE(left);
+    elementtreestate *st = get_elementtree_state_by_type(tp);
+    if (!CDATA_Check(st, right)) {
+        return PyUnicode_Concat(left, right);
+    }
+    
+    PyObject *args = PyTuple_New(1);
+    PyTuple_SetItem(args, 0, PyUnicode_Concat(left, right));
+    PyObject *kwds = PyDict_New();
+    CDATAObject *new = (CDATAObject *)PyUnicode_Type.tp_new(Py_TYPE(left), args, kwds);
+    CDATAObject *l = (CDATAObject *)left;
+    CDATAObject *r = (CDATAObject *)right;
+    Py_ssize_t n = new->sections_length = l->sections_length + r->sections_length;
+    new->sections = PyMem_New(Py_ssize_t, n);
+    memcpy(new->sections, l->sections, l->sections_length * sizeof(Py_ssize_t));
+    Py_ssize_t i;
+    Py_ssize_t j = 0;
+    Py_ssize_t offset = PyUnicode_GetLength(left);
+    for (i = l->sections_length; i < n; i++) {
+        new->sections[i] = r->sections[j++] + offset;
+    }
+    return (PyObject *)new;
+}
 
 static PyObject*
 cdata_repr(CDATAObject* self)
@@ -4289,11 +4355,8 @@ cdata_repr(CDATAObject* self)
     PyObject *format = PyUnicode_FromString("<CDATA %s>");
     PyObject *repr = PyUnicode_Type.tp_repr(self);
     return PyUnicode_Format(format, repr);
-    // return PyUnicode_FromFormat("<CDATA %s>", PyUnicode_DATA(self));
 }
 
-
-#define CDATA_Check(st, op) PyObject_TypeCheck(op, (st)->CDATA_Type)
 
 /* ==================================================================== */
 
@@ -4449,6 +4512,8 @@ static PyType_Spec xmlparser_spec = {
 };
 
 static PyMethodDef cdata_methods[] = {
+    _ELEMENTTREE_CDATA_ESCAPE_METHODDEF
+
     {NULL, NULL}
 };
 
@@ -4466,21 +4531,10 @@ static PyGetSetDef cdata_getsetlist[] = {
 };
 
 static PyType_Slot cdata_slots[] = {
-    // {Py_tp_getattro, PyObject_GenericGetAttr},
-    // {Py_tp_traverse, cdata_gc_traverse},
-    // {Py_tp_clear, cdata_gc_clear},
-    // {Py_tp_methods, cdata_methods},
-    // {Py_tp_members, cdata_members},
-    // {Py_tp_getset, cdata_getsetlist},
-    // {Py_tp_new, _elementtree_CDATA},
+    {Py_tp_methods, cdata_methods},
     {Py_tp_new, cdata_new},
-    // {Py_tp_init, _elementtree_CDATA___init__},
-    // {Py_tp_alloc, PyType_GenericAlloc},
-    // {Py_tp_str, cdata_repr},
     {Py_tp_repr, cdata_repr},
-    // {Py_sq_length, cdata_length},
-    // {Py_sq_concat, cdata_concat},
-    // {Py_sq_inplace_concat, cdata_inplace_concat},
+    {Py_sq_concat, cdata_concat},
     {0, NULL},
 };
 
