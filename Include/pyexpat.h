@@ -27,6 +27,10 @@ struct PyExpat_CAPI
     void (*ParserFree)(XML_Parser parser);
     void (*SetCharacterDataHandler)(
         XML_Parser parser, XML_CharacterDataHandler handler);
+    void (*SetStartCdataSectionHandler)(
+        XML_Parser parser, XML_StartCdataSectionHandler handler);
+    void (*SetEndCdataSectionHandler)(
+        XML_Parser parser, XML_EndCdataSectionHandler handler);
     void (*SetCommentHandler)(
         XML_Parser parser, XML_CommentHandler handler);
     void (*SetDefaultHandlerExpand)(

@@ -72,6 +72,7 @@
 
 __all__ = [
     # public symbols
+    "CDATA",
     "Comment",
     "dump",
     "Element", "ElementTree",
@@ -100,6 +101,7 @@ import collections
 import collections.abc
 import contextlib
 import weakref
+import functools
 
 from . import ElementPath
 
@@ -1006,6 +1008,8 @@ def _raise_serialization_error(text):
         )
 
 def _escape_cdata(text):
+    if isinstance(text, CDATA):
+        return text.escape()
     # escape character data
     try:
         # it's worth avoiding do-nothing calls for strings that are
@@ -1424,6 +1428,7 @@ class TreeBuilder:
         if element_factory is None:
             element_factory = Element
         self._factory = element_factory
+        self.in_cdata = False
 
     def close(self):
         """Flush builder buffers and return toplevel document Element."""
@@ -1434,7 +1439,7 @@ class TreeBuilder:
     def _flush(self):
         if self._data:
             if self._last is not None:
-                text = "".join(self._data)
+                text = functools.reduce(lambda x, y: x + y, self._data)
                 if self._tail:
                     assert self._last.tail is None, "internal error (tail)"
                     self._last.tail = text
@@ -1445,7 +1450,13 @@ class TreeBuilder:
 
     def data(self, data):
         """Add text to current element."""
-        self._data.append(data)
+        self._data.append(CDATA(data, self.in_cdata))
+    
+    def start_cdata(self):
+        self.in_cdata = True
+    
+    def end_cdata(self):
+        self.in_cdata = False
 
     def start(self, tag, attrs):
         """Open new element and return it.
@@ -1547,6 +1558,10 @@ class XMLParser:
             parser.EndNamespaceDeclHandler = self._end_ns
         if hasattr(target, 'data'):
             parser.CharacterDataHandler = target.data
+        if hasattr(target, 'start_cdata'):
+            parser.StartCdataSectionHandler = target.start_cdata
+        if hasattr(target, 'end_cdata'):
+            parser.EndCdataSectionHandler = target.end_cdata
         # miscellaneous callbacks
         if hasattr(target, 'comment'):
             parser.CommentHandler = target.comment
@@ -2073,6 +2088,31 @@ def _escape_attrib_c14n(text):
     except (TypeError, AttributeError):
         _raise_serialization_error(text)
 
+class CDATA(str):
+    def __new__(cls, content, cdata=True):
+        self = super().__new__(cls, content)
+        self.cdata_sections = []
+        if cdata:
+            self.cdata_sections.append((0, len(content)))
+        return self
+    
+    def escape(self):
+        start = 0
+        result = []
+        for section_start, section_end in self.cdata_sections:
+            result.append(_escape_cdata(self[start:section_start]))
+            result.append(f'<![CDATA[{self[section_start:section_end].replace(']]>', ']]]]><![CDATA[>')}]]>')
+            start = section_end
+        return ''.join(result)
+
+    def __add__(self, other):
+        if isinstance(other, str):
+            return str(self) + other
+        if isinstance(other, CDATA):
+            new = CDATA(str(self) + str(other))
+            new.cdata_sections = self.cdata_sections + other.cdata_sections
+            return new
+        return NotImplemented
 
 # --------------------------------------------------------------------
 
@@ -2083,7 +2123,7 @@ try:
     # (see tests)
     _Element_Py = Element
 
-    # Element, SubElement, ParseError, TreeBuilder, XMLParser, _set_factories
+    # CDATA, Element, SubElement, ParseError, TreeBuilder, XMLParser, _set_factories
     from _elementtree import *
     from _elementtree import _set_factories
 except ImportError:

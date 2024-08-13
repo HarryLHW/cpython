@@ -97,6 +97,7 @@ typedef struct {
     PyTypeObject *ElementIter_Type;
     PyTypeObject *TreeBuilder_Type;
     PyTypeObject *XMLParser_Type;
+    PyTypeObject *CDATA_Type;
 
     PyObject *expat_capsule;
     struct PyExpat_CAPI *expat_capi;
@@ -157,6 +158,7 @@ elementtree_clear(PyObject *m)
     Py_CLEAR(st->TreeBuilder_Type);
     Py_CLEAR(st->XMLParser_Type);
     Py_CLEAR(st->expat_capsule);
+    Py_CLEAR(st->CDATA_Type);
 
     st->expat_capi = NULL;
     return 0;
@@ -178,6 +180,7 @@ elementtree_traverse(PyObject *m, visitproc visit, void *arg)
     Py_VISIT(st->TreeBuilder_Type);
     Py_VISIT(st->XMLParser_Type);
     Py_VISIT(st->expat_capsule);
+    Py_VISIT(st->CDATA_Type);
     return 0;
 }
 
@@ -405,8 +408,9 @@ module _elementtree
 class _elementtree.Element "ElementObject *" "clinic_state()->Element_Type"
 class _elementtree.TreeBuilder "TreeBuilderObject *" "clinic_state()->TreeBuilder_Type"
 class _elementtree.XMLParser "XMLParserObject *" "clinic_state()->XMLParser_Type"
+class _elementtree.CDATA "CDATAObject *" "clinic_state()->CDATA_Type"
 [clinic start generated code]*/
-/*[clinic end generated code: output=da39a3ee5e6b4b0d input=6c83ea832d2b0ef1]*/
+/*[clinic end generated code: output=da39a3ee5e6b4b0d input=cff4a0c8e8f0acf8]*/
 
 static int
 element_init(PyObject *self, PyObject *args, PyObject *kwds)
@@ -3057,6 +3061,8 @@ typedef struct {
     PyObject *handle_end_ns;
     PyObject *handle_start;
     PyObject *handle_data;
+    PyObject *handle_cdata_start;
+    PyObject *handle_cdata_end;
     PyObject *handle_end;
 
     PyObject *handle_comment;
@@ -3064,6 +3070,8 @@ typedef struct {
     PyObject *handle_doctype;
 
     PyObject *handle_close;
+
+    int in_cdata_section;
 
     elementtreestate *state;
     PyObject *elementtree_module;
@@ -3340,6 +3348,20 @@ expat_data_handler(XMLParserObject* self, const XML_Char* data_in,
     Py_DECREF(data);
 
     Py_XDECREF(res);
+}
+
+static void
+expat_start_cdata_handler(XMLParserObject* self)
+{
+    self->in_cdata_section = 1;
+    printf("start CDATA\n");
+}
+
+static void
+expat_end_cdata_handler(XMLParserObject* self)
+{
+    self->in_cdata_section = 0;
+    printf("end CDATA\n");
 }
 
 static void
@@ -3690,6 +3712,14 @@ _elementtree_XMLParser___init___impl(XMLParserObject *self, PyObject *target,
     if (ignore_attribute_error(self->handle_start)) {
         return -1;
     }
+    self->handle_cdata_start = PyObject_GetAttrString(target, "cdata_start");
+    if (ignore_attribute_error(self->handle_cdata_start)) {
+        return -1;
+    }
+    self->handle_cdata_end = PyObject_GetAttrString(target, "cdata_end");
+    if (ignore_attribute_error(self->handle_cdata_start)) {
+        return -1;
+    }
     self->handle_data = PyObject_GetAttrString(target, "data");
     if (ignore_attribute_error(self->handle_data)) {
         return -1;
@@ -3735,6 +3765,14 @@ _elementtree_XMLParser___init___impl(XMLParserObject *self, PyObject *target,
     EXPAT(st, SetCharacterDataHandler)(
         self->parser,
         (XML_CharacterDataHandler) expat_data_handler
+        );
+    EXPAT(st, SetStartCdataSectionHandler)(
+        self->parser,
+        (XML_StartCdataSectionHandler) expat_start_cdata_handler
+        );
+    EXPAT(st, SetEndCdataSectionHandler)(
+        self->parser,
+        (XML_EndCdataSectionHandler) expat_end_cdata_handler
         );
     if (self->handle_comment)
         EXPAT(st, SetCommentHandler)(
@@ -4192,6 +4230,73 @@ static PyGetSetDef xmlparser_getsetlist[] = {
     {NULL},
 };
 
+
+/* -------------------------------------------------------------------- */
+/* the CDATA type */
+
+typedef struct {
+    PyUnicodeObject content;
+    PyObject *c;
+    Py_ssize_t sections_length;
+    Py_ssize_t *sections;
+} CDATAObject;
+
+#define REPLACE(unicode, substr, replstr) \
+PyUnicode_Replace(unicode, PyUnicode_FromString(substr), PyUnicode_FromString(replstr), -1)
+
+#define FORMAT_CDATA(data) \
+PyUnicode_Format(PyUnicode_FromString("<![CDATA[%s]]>"), \
+                 REPLACE(data, "]]>", "]]]]><![CDATA[>"))
+
+#define ESCAPE_CDATA(data) \
+REPLACE(REPLACE(REPLACE(data, "&", "&amp;"), "<", "&lt;"), ">", "&gt;")
+
+
+static PyObject *
+cdata_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+    PyObject *argsbuf[2];
+    PyObject * const *fastargs;
+    Py_ssize_t nargs = PyTuple_GET_SIZE(args);
+    Py_ssize_t noptargs = nargs + (kwargs ? PyDict_GET_SIZE(kwargs) : 0) - 1;
+    PyObject *data;
+    int cdata_section = 1;
+
+    fastargs = _PyArg_UnpackKeywords(_PyTuple_CAST(args)->ob_item, nargs, kwargs, NULL, &_parser, 1, 2, 0, argsbuf);
+    if (!fastargs) {
+        goto exit;
+    }
+    if (!PyUnicode_Check(fastargs[0])) {
+        _PyArg_BadArgument("CDATA", "argument 'data'", "str", fastargs[0]);
+        goto exit;
+    }
+    data = fastargs[0];
+    if (!noptargs) {
+        goto skip_optional_pos;
+    }
+    cdata_section = PyObject_IsTrue(fastargs[1]);
+    if (cdata_section < 0) {
+        goto exit;
+    }
+    CDATAObject *cdata = PyUnicode_Type.tp_new(type, args, kwds);
+    return (PyObject *)cdata;
+}
+
+
+static PyObject*
+cdata_repr(CDATAObject* self)
+{
+    PyObject *format = PyUnicode_FromString("<CDATA %s>");
+    PyObject *repr = PyUnicode_Type.tp_repr(self);
+    return PyUnicode_Format(format, repr);
+    // return PyUnicode_FromFormat("<CDATA %s>", PyUnicode_DATA(self));
+}
+
+
+#define CDATA_Check(st, op) PyObject_TypeCheck(op, (st)->CDATA_Type)
+
+/* ==================================================================== */
+
 #define clinic_state() (get_elementtree_state_by_type(Py_TYPE(self)))
 #include "clinic/_elementtree.c.h"
 #undef clinic_state
@@ -4231,7 +4336,7 @@ static PyMethodDef element_methods[] = {
 };
 
 static struct PyMemberDef element_members[] = {
-    {"__weaklistoffset__", Py_T_PYSSIZET, offsetof(ElementObject, weakreflist), Py_READONLY},
+    {"_data", Py_T_PYSSIZET, offsetof(ElementObject, weakreflist), Py_READONLY},
     {NULL},
 };
 
@@ -4343,6 +4448,50 @@ static PyType_Spec xmlparser_spec = {
     .slots = xmlparser_slots,
 };
 
+static PyMethodDef cdata_methods[] = {
+    {NULL, NULL}
+};
+
+static struct PyMemberDef cdata_members[] = {
+    // {"content", _Py_T_OBJECT, offsetof(CDATAObject, content), Py_READONLY, NULL},
+    {NULL},
+};
+
+static PyGetSetDef cdata_getsetlist[] = {
+    // {"content",
+    //     (getter)cdata_content_getter,
+    //     (setter)cdata_content_setter,
+    //     "CDATA data"},
+    {NULL},
+};
+
+static PyType_Slot cdata_slots[] = {
+    // {Py_tp_getattro, PyObject_GenericGetAttr},
+    // {Py_tp_traverse, cdata_gc_traverse},
+    // {Py_tp_clear, cdata_gc_clear},
+    // {Py_tp_methods, cdata_methods},
+    // {Py_tp_members, cdata_members},
+    // {Py_tp_getset, cdata_getsetlist},
+    // {Py_tp_new, _elementtree_CDATA},
+    {Py_tp_new, cdata_new},
+    // {Py_tp_init, _elementtree_CDATA___init__},
+    // {Py_tp_alloc, PyType_GenericAlloc},
+    // {Py_tp_str, cdata_repr},
+    {Py_tp_repr, cdata_repr},
+    // {Py_sq_length, cdata_length},
+    // {Py_sq_concat, cdata_concat},
+    // {Py_sq_inplace_concat, cdata_inplace_concat},
+    {0, NULL},
+};
+
+static PyType_Spec cdata_spec = {
+    .name = "xml.etree.ElementTree.CDATA",
+    .basicsize = sizeof(CDATAObject),
+    .flags = (Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE |
+              Py_TPFLAGS_IMMUTABLETYPE),
+    .slots = cdata_slots,
+};
+
 /* ==================================================================== */
 /* python module interface */
 
@@ -4352,12 +4501,12 @@ static PyMethodDef _functions[] = {
     {NULL, NULL}
 };
 
-#define CREATE_TYPE(module, type, spec) \
+#define CREATE_TYPE(module, type, spec, bases) \
 do {                                                                     \
     if (type != NULL) {                                                  \
         break;                                                           \
     }                                                                    \
-    type = (PyTypeObject *)PyType_FromModuleAndSpec(module, spec, NULL); \
+    type = (PyTypeObject *)PyType_FromModuleAndSpec(module, spec, bases); \
     if (type == NULL) {                                                  \
         goto error;                                                      \
     }                                                                    \
@@ -4369,10 +4518,11 @@ module_exec(PyObject *m)
     elementtreestate *st = get_elementtree_state(m);
 
     /* Initialize object types */
-    CREATE_TYPE(m, st->ElementIter_Type, &elementiter_spec);
-    CREATE_TYPE(m, st->TreeBuilder_Type, &treebuilder_spec);
-    CREATE_TYPE(m, st->Element_Type, &element_spec);
-    CREATE_TYPE(m, st->XMLParser_Type, &xmlparser_spec);
+    CREATE_TYPE(m, st->ElementIter_Type, &elementiter_spec, NULL);
+    CREATE_TYPE(m, st->TreeBuilder_Type, &treebuilder_spec, NULL);
+    CREATE_TYPE(m, st->Element_Type, &element_spec, NULL);
+    CREATE_TYPE(m, st->XMLParser_Type, &xmlparser_spec, NULL);
+    CREATE_TYPE(m, st->CDATA_Type, &cdata_spec, &PyUnicode_Type);
 
     st->deepcopy_obj = _PyImport_GetModuleAttrString("copy", "deepcopy");
     if (st->deepcopy_obj == NULL) {
@@ -4445,7 +4595,8 @@ module_exec(PyObject *m)
     PyTypeObject *types[] = {
         st->Element_Type,
         st->TreeBuilder_Type,
-        st->XMLParser_Type
+        st->XMLParser_Type,
+        st->CDATA_Type,
     };
 
     for (size_t i = 0; i < Py_ARRAY_LENGTH(types); i++) {
