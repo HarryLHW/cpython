@@ -494,8 +494,9 @@ def _parse_sub(source, state, verbose, nested):
         indices = prefix_lengths[length]
         start = indices[0]
         target = indices[0] + 1
+        last = len(indices) - 1
         for i in range(1, len(indices)):
-            if target != indices[i]:
+            if target != indices[i] or i == last:
                 new = _get_branch_or_character_set([items[j][length:] for j in range(start, target + 1)])
                 del items[target][length:]
                 items[target].append(new)
@@ -504,12 +505,6 @@ def _parse_sub(source, state, verbose, nested):
                     to_delete.append(j)
                 start = indices[i]
             target = indices[i] + 1
-        new = _get_branch_or_character_set([items[j][length:] for j in range(start, target + 1)])
-        del items[target][length:]
-        items[target].append(new)
-        items[start] = items[target]
-        for j in range(start, target):
-            to_delete.append(j)
     for i in sorted(to_delete, reverse=True):
         del items[i]
 
