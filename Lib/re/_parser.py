@@ -468,45 +468,73 @@ def _parse_sub(source, state, verbose, nested):
 
     subpattern = SubPattern(state)
 
-    # check if all items share a common prefix
-    while True:
-        prefix = None
-        for item in items:
-            if not item:
-                break
-            if prefix is None:
-                prefix = item[0]
-            elif item[0] != prefix:
+    # check if all or some items share a common prefix
+    prefix_lengths = {}
+    for i in range(len(items) - 1):
+        item1 = items[i]
+        item2 = items[i + 1]
+        max_length = min(len(item1), len(item2))
+        for j in range(max_length):
+            if item1[j] != item2[j]:
+                if j in prefix_lengths:
+                    prefix_lengths[j].append(i)
+                else:
+                    prefix_lengths[j] = [i]
                 break
         else:
-            # all subitems start with a common "prefix".
-            # move it out of the branch
-            for item in items:
-                del item[0]
-            subpattern.append(prefix)
-            continue # check next one
-        break
+            if max_length in prefix_lengths:
+                prefix_lengths[max_length].append(i)
+            else:
+                prefix_lengths[max_length] = [i]
 
+    to_delete = []
+    for length in sorted(prefix_lengths, reverse=True):
+        if not length:
+            continue
+        indices = prefix_lengths[length]
+        start = indices[0]
+        target = indices[0] + 1
+        for i in range(1, len(indices)):
+            if target != indices[i]:
+                new = _get_branch_or_character_set([items[j][length:] for j in range(start, target + 1)])
+                del items[target][length:]
+                items[target].append(new)
+                items[start] = items[target]
+                for j in range(start, target):
+                    to_delete.append(j)
+                start = indices[i]
+            target = indices[i] + 1
+        new = _get_branch_or_character_set([items[j][length:] for j in range(start, target + 1)])
+        del items[target][length:]
+        items[target].append(new)
+        items[start] = items[target]
+        for j in range(start, target):
+            to_delete.append(j)
+    for i in sorted(to_delete, reverse=True):
+        del items[i]
+
+    subpattern.append(_get_branch_or_character_set(items))
+    return subpattern
+
+def _get_branch_or_character_set(items):
     # check if the branch can be replaced by a character set
-    set = []
+    character_set = []
     for item in items:
         if len(item) != 1:
             break
         op, av = item[0]
         if op is LITERAL:
-            set.append((op, av))
+            character_set.append((op, av))
         elif op is IN and av[0][0] is not NEGATE:
-            set.extend(av)
+            character_set.extend(av)
         else:
             break
     else:
         # we can store this as a character set instead of a
         # branch (the compiler may optimize this even more)
-        subpattern.append((IN, _uniq(set)))
-        return subpattern
+        return IN, _uniq(character_set)
 
-    subpattern.append((BRANCH, (None, items)))
-    return subpattern
+    return BRANCH, (None, items)
 
 def _parse(source, state, verbose, nested, first=False):
     # parse a simple pattern
