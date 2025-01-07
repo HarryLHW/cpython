@@ -448,20 +448,48 @@ def _escape(source, escape, state):
 def _uniq(items):
     return list(dict.fromkeys(items))
 
+def _check_prefix(last_item, item):
+    index = last_index = 0
+    while True:
+        if len(item) <= index or len(last_item) <= last_index:
+            break
+        current_item = item[index]
+        current_last_item = last_item[last_index]
+        if current_item == current_last_item:
+            index += 1
+            last_index += 1
+        elif current_last_item[0] is BRANCH and current_last_item[1][1][-1] and current_last_item[1][1][-1][0] == item[index]:
+            index += 1
+            last_index = 1
+            last_item = current_last_item[1][1][-1]
+        else:
+            break
+    if index:
+        if len(last_item) <= last_index:
+            last_item.append((MIN_REPEAT, (0, 1, item[index:])))
+        elif last_item[last_index][0] is BRANCH:
+            last_item[last_index][1][1].append(item[index:])
+        else:
+            new_item = (BRANCH, (None, [last_item[last_index:], item[index:]]))
+            del last_item[last_index:]
+            last_item.append(new_item)
+    return index
+
 def _parse_sub(source, state, verbose, nested):
     # parse an alternation: a|b|c
 
-    items = []
+    items = [_parse(source, state, verbose, nested + 1, not nested)]
     itemsappend = items.append
     sourcematch = source.match
-    start = source.tell()
-    while True:
-        itemsappend(_parse(source, state, verbose, nested + 1,
-                           not nested and not items))
-        if not sourcematch("|"):
-            break
+    if sourcematch("|"):
         if not nested:
             verbose = state.flags & SRE_FLAG_VERBOSE
+        while True:
+            item = _parse(source, state, verbose, nested + 1, False)
+            if not _check_prefix(items[-1], item):
+                itemsappend(item)
+            if not sourcematch("|"):
+                break
 
     if len(items) == 1:
         return items[0]
@@ -469,45 +497,6 @@ def _parse_sub(source, state, verbose, nested):
     subpattern = SubPattern(state)
 
     # check if all or some items share a common prefix
-    prefix_lengths = {}
-    for i in range(len(items) - 1):
-        item1 = items[i]
-        item2 = items[i + 1]
-        max_length = min(len(item1), len(item2))
-        for j in range(max_length):
-            if item1[j] != item2[j]:
-                if j in prefix_lengths:
-                    prefix_lengths[j].append(i)
-                else:
-                    prefix_lengths[j] = [i]
-                break
-        else:
-            if max_length in prefix_lengths:
-                prefix_lengths[max_length].append(i)
-            else:
-                prefix_lengths[max_length] = [i]
-
-    to_delete = []
-    for length in sorted(prefix_lengths, reverse=True):
-        if not length:
-            continue
-        indices = prefix_lengths[length]
-        start = indices[0]
-        target = indices[0] + 1
-        last = len(indices) - 1
-        for i in range(1, len(indices)):
-            if target != indices[i] or i == last:
-                new = _get_branch_or_character_set([items[j][length:] for j in range(start, target + 1)])
-                del items[target][length:]
-                items[target].append(new)
-                items[start] = items[target]
-                for j in range(start, target):
-                    to_delete.append(j)
-                start = indices[i]
-            target = indices[i] + 1
-    for i in sorted(to_delete, reverse=True):
-        del items[i]
-
     subpattern.append(_get_branch_or_character_set(items))
     return subpattern
 
