@@ -48,17 +48,6 @@ typedef struct {
 
 typedef struct {
     PyObject_VAR_HEAD
-    PyObject* string; /* link to the target string (must be first) */
-    PyObject* regs; /* cached list of matching spans */
-    PatternObject* pattern; /* link to the regex (pattern) object */
-    Py_ssize_t pos, endpos; /* current target slice */
-    Py_ssize_t lastindex; /* last index marker seen by the engine (-1 if none) */
-    Py_ssize_t groups; /* number of groups (start/end marks) */
-    Py_ssize_t mark[1];
-} MatchObject;
-
-typedef struct {
-    PyObject_VAR_HEAD
     Py_ssize_t chunks;  /* the number of group references and non-NULL literals
                          * self->chunks <= 2*Py_SIZE(self) + 1 */
     PyObject *literal;
@@ -112,6 +101,18 @@ typedef struct {
     PyObject *fail_after_exc;
 #endif
 } SRE_STATE;
+
+typedef struct {
+    PyObject_VAR_HEAD
+    PyObject* string; /* link to the target string (must be first) */
+    PyObject* regs; /* cached list of matching spans */
+    PatternObject* pattern; /* link to the regex (pattern) object */
+    SRE_STATE* state;
+    Py_ssize_t pos, endpos; /* current target slice */
+    Py_ssize_t lastindex; /* last index marker seen by the engine (-1 if none) */
+    Py_ssize_t groups; /* number of groups (start/end marks) */
+    Py_ssize_t mark[1];
+} MatchObject;
 
 typedef struct {
     PyObject_HEAD
