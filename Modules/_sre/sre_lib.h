@@ -375,7 +375,21 @@ SRE(count)(SRE_STATE* state, const SRE_CODE* pattern, Py_ssize_t maxcount)
     } while (0)
 
 #define RETURN_ERROR(i) do { return i; } while(0)
-#define RETURN_FAILURE do { ret = 0; goto exit; } while(0)
+#define RETURN_FAILURE(v) do { \
+    ret = 0; \
+    if (state->debug) { \
+        PyObject *matched = PyUnicode_FromStringAndSize(ptr_start, ptr >= ptr_start ? ptr - ptr_start : 0); \
+        PyObject *unmatched = PyUnicode_FromString(ptr >= ptr_start ? ptr : ptr_start); \
+        printf("\nFAILURE @ pattern[%zd], matched ", pattern - pattern_start - 1 > 0 ? pattern - pattern_start - 1 : 0); \
+        PyObject_Print(matched, stdout, 0); \
+        printf(", unmatched "); \
+        PyObject_Print(unmatched, stdout, 0); \
+        printf("\n"); \
+        printf v; \
+        printf("\n"); \
+    } \
+    goto exit; \
+} while(0)
 #define RETURN_SUCCESS do { ret = 1; goto exit; } while(0)
 
 #define RETURN_ON_ERROR(i) \
@@ -383,7 +397,7 @@ SRE(count)(SRE_STATE* state, const SRE_CODE* pattern, Py_ssize_t maxcount)
 #define RETURN_ON_SUCCESS(i) \
     do { RETURN_ON_ERROR(i); if (i > 0) RETURN_SUCCESS; } while (0)
 #define RETURN_ON_FAILURE(i) \
-    do { RETURN_ON_ERROR(i); if (i == 0) RETURN_FAILURE; } while (0)
+    do { RETURN_ON_ERROR(i); if (i == 0) RETURN_FAILURE(("")); } while (0)
 
 #define DATA_STACK_ALLOC(state, type, ptr) \
 do { \
@@ -452,6 +466,16 @@ do { \
 
 #define PTR_TO_INDEX(ptr) \
     ((ptr) ? ((char*)(ptr) - (char*)state->beginning) / state->charsize : -1)
+
+#define FORMAT_LITERAL(char) \
+    PyUnicode_AsUTF8(PyUnicode_FromFormat("LITERAL 0x%x (%s)", (char), PyUnicode_AsUTF8(PyObject_Repr(PyUnicode_FromStringAndSize(&(char), 1)))))
+
+#define FORMAT_CURRENT_CHAR \
+    (ptr >= end ? "need more inputs" : \
+        (SRE_IS_LINEBREAK(ptr[0]) ? "got a newline" : \
+            PyUnicode_AsUTF8(PyUnicode_FromFormat("got %s", FORMAT_LITERAL(ptr[0]))) \
+        ) \
+    )
 
 #if VERBOSE
 #  define MARK_TRACE(label, lastmark) \
@@ -603,6 +627,9 @@ SRE(match)(SRE_STATE* state, const SRE_CODE* pattern, int toplevel)
     Py_ssize_t ret = 0;
     int jump;
     unsigned int sigcount = state->sigcount;
+    SRE_CODE* pattern_start = pattern;
+    SRE_CHAR *ptr_start = (SRE_CHAR *)state->ptr;
+
 
     SRE(match_context)* ctx;
     SRE(match_context)* nextctx;
@@ -631,7 +658,7 @@ entrance:
         if (pattern[3] && (uintptr_t)(end - ptr) < pattern[3]) {
             TRACE(("reject (got %tu chars, need %zu)\n",
                    end - ptr, (size_t) pattern[3]));
-            RETURN_FAILURE;
+            RETURN_FAILURE(("reject (got %tu chars, need %zu)\n", end - ptr, (size_t) pattern[3]));
         }
         pattern += pattern[1] + 1;
     }
@@ -675,7 +702,7 @@ dispatch:
             TRACE(("|%p|%p|LITERAL %d\n", pattern,
                    ptr, *pattern));
             if (ptr >= end || (SRE_CODE) ptr[0] != pattern[0])
-                RETURN_FAILURE;
+                RETURN_FAILURE(("Expected %s, %s", FORMAT_LITERAL(pattern[0]), FORMAT_CURRENT_CHAR));
             pattern++;
             ptr++;
             DISPATCH;
@@ -686,7 +713,7 @@ dispatch:
             TRACE(("|%p|%p|NOT_LITERAL %d\n", pattern,
                    ptr, *pattern));
             if (ptr >= end || (SRE_CODE) ptr[0] == pattern[0])
-                RETURN_FAILURE;
+                RETURN_FAILURE(("Expected NOT %s, %s", FORMAT_LITERAL(pattern[0]), FORMAT_CURRENT_CHAR));
             pattern++;
             ptr++;
             DISPATCH;
@@ -698,7 +725,7 @@ dispatch:
                 ((state->match_all && ptr != state->end) ||
                  (state->must_advance && ptr == state->start)))
             {
-                RETURN_FAILURE;
+                RETURN_FAILURE(("Expected end of string, got something"));
             }
             state->ptr = ptr;
             RETURN_SUCCESS;
@@ -708,7 +735,7 @@ dispatch:
             /* <AT> <code> */
             TRACE(("|%p|%p|AT %d\n", pattern, ptr, *pattern));
             if (!SRE(at)(state, ptr, *pattern))
-                RETURN_FAILURE;
+                RETURN_FAILURE(("Expected matching at given position"));
             pattern++;
             DISPATCH;
 
@@ -718,7 +745,7 @@ dispatch:
             TRACE(("|%p|%p|CATEGORY %d\n", pattern,
                    ptr, *pattern));
             if (ptr >= end || !sre_category(pattern[0], ptr[0]))
-                RETURN_FAILURE;
+                RETURN_FAILURE(("Expected in category %d, %s", pattern[0], FORMAT_CURRENT_CHAR));
             pattern++;
             ptr++;
             DISPATCH;
@@ -728,7 +755,7 @@ dispatch:
             /* <ANY> */
             TRACE(("|%p|%p|ANY\n", pattern, ptr));
             if (ptr >= end || SRE_IS_LINEBREAK(ptr[0]))
-                RETURN_FAILURE;
+                RETURN_FAILURE(("Expected anything except a newline, %s", FORMAT_CURRENT_CHAR));
             ptr++;
             DISPATCH;
 
@@ -737,7 +764,7 @@ dispatch:
             /* <ANY_ALL> */
             TRACE(("|%p|%p|ANY_ALL\n", pattern, ptr));
             if (ptr >= end)
-                RETURN_FAILURE;
+                RETURN_FAILURE(("Expect anything, %s", FORMAT_CURRENT_CHAR));
             ptr++;
             DISPATCH;
 
@@ -747,7 +774,7 @@ dispatch:
             TRACE(("|%p|%p|IN\n", pattern, ptr));
             if (ptr >= end ||
                 !SRE(charset)(state, pattern + 1, *ptr))
-                RETURN_FAILURE;
+                RETURN_FAILURE(("Expected in set %d, %s", pattern[0], FORMAT_CURRENT_CHAR));
             pattern += pattern[0];
             ptr++;
             DISPATCH;
@@ -757,7 +784,7 @@ dispatch:
                    pattern, ptr, pattern[0]));
             if (ptr >= end ||
                 sre_lower_ascii(*ptr) != *pattern)
-                RETURN_FAILURE;
+                RETURN_FAILURE(("760"));
             pattern++;
             ptr++;
             DISPATCH;
@@ -767,7 +794,7 @@ dispatch:
                    pattern, ptr, pattern[0]));
             if (ptr >= end ||
                 sre_lower_unicode(*ptr) != *pattern)
-                RETURN_FAILURE;
+                RETURN_FAILURE(("770"));
             pattern++;
             ptr++;
             DISPATCH;
@@ -777,7 +804,7 @@ dispatch:
                    pattern, ptr, pattern[0]));
             if (ptr >= end
                 || !char_loc_ignore(*pattern, *ptr))
-                RETURN_FAILURE;
+                RETURN_FAILURE(("780"));
             pattern++;
             ptr++;
             DISPATCH;
@@ -787,7 +814,7 @@ dispatch:
                    pattern, ptr, *pattern));
             if (ptr >= end ||
                 sre_lower_ascii(*ptr) == *pattern)
-                RETURN_FAILURE;
+                RETURN_FAILURE(("790"));
             pattern++;
             ptr++;
             DISPATCH;
@@ -797,7 +824,7 @@ dispatch:
                    pattern, ptr, *pattern));
             if (ptr >= end ||
                 sre_lower_unicode(*ptr) == *pattern)
-                RETURN_FAILURE;
+                RETURN_FAILURE(("800"));
             pattern++;
             ptr++;
             DISPATCH;
@@ -807,7 +834,7 @@ dispatch:
                    pattern, ptr, *pattern));
             if (ptr >= end
                 || char_loc_ignore(*pattern, *ptr))
-                RETURN_FAILURE;
+                RETURN_FAILURE(("810"));
             pattern++;
             ptr++;
             DISPATCH;
@@ -817,7 +844,7 @@ dispatch:
             if (ptr >= end
                 || !SRE(charset)(state, pattern+1,
                                  (SRE_CODE)sre_lower_ascii(*ptr)))
-                RETURN_FAILURE;
+                RETURN_FAILURE(("820"));
             pattern += pattern[0];
             ptr++;
             DISPATCH;
@@ -827,7 +854,7 @@ dispatch:
             if (ptr >= end
                 || !SRE(charset)(state, pattern+1,
                                  (SRE_CODE)sre_lower_unicode(*ptr)))
-                RETURN_FAILURE;
+                RETURN_FAILURE(("830"));
             pattern += pattern[0];
             ptr++;
             DISPATCH;
@@ -836,7 +863,7 @@ dispatch:
             TRACE(("|%p|%p|IN_LOC_IGNORE\n", pattern, ptr));
             if (ptr >= end
                 || !SRE(charset_loc_ignore)(state, pattern+1, *ptr))
-                RETURN_FAILURE;
+                RETURN_FAILURE(("840"));
             pattern += pattern[0];
             ptr++;
             DISPATCH;
@@ -881,7 +908,7 @@ dispatch:
             }
             if (state->repeat)
                 MARK_POP_DISCARD(ctx->lastmark);
-            RETURN_FAILURE;
+            RETURN_FAILURE(("884"));
 
         TARGET(SRE_OP_REPEAT_ONE):
             /* match repeated sequence (maximizing regexp) */
@@ -897,7 +924,7 @@ dispatch:
                    pattern[1], pattern[2]));
 
             if ((Py_ssize_t) pattern[1] > end - ptr)
-                RETURN_FAILURE; /* cannot match */
+                RETURN_FAILURE(("cannot match")); /* cannot match */
 
             state->ptr = ptr;
 
@@ -913,7 +940,7 @@ dispatch:
                and backtrack if not. */
 
             if (ctx->count < (Py_ssize_t) pattern[1])
-                RETURN_FAILURE;
+                RETURN_FAILURE(("916"));
 
             if (pattern[pattern[0]] == SRE_OP_SUCCESS &&
                 ptr == state->end &&
@@ -980,7 +1007,7 @@ dispatch:
                 if (state->repeat)
                     MARK_POP_DISCARD(ctx->lastmark);
             }
-            RETURN_FAILURE;
+            RETURN_FAILURE(("Cannot match until less than minimum REPEAT"));
 
         TARGET(SRE_OP_MIN_REPEAT_ONE):
             /* match repeated sequence (minimizing regexp) */
@@ -996,7 +1023,7 @@ dispatch:
                    pattern[1], pattern[2]));
 
             if ((Py_ssize_t) pattern[1] > end - ptr)
-                RETURN_FAILURE; /* cannot match */
+                RETURN_FAILURE(("cannot match")); /* cannot match */
 
             state->ptr = ptr;
 
@@ -1009,7 +1036,7 @@ dispatch:
                 DATA_LOOKUP_AT(SRE(match_context), ctx, ctx_pos);
                 if (ret < (Py_ssize_t) pattern[1])
                     /* didn't match minimum number of times */
-                    RETURN_FAILURE;
+                    RETURN_FAILURE(("didn't match minimum number of times"));
                 /* advance past minimum matches of repeat */
                 ctx->count = ret;
                 ptr += ctx->count;
@@ -1058,7 +1085,7 @@ dispatch:
                 if (state->repeat)
                     MARK_POP_DISCARD(ctx->lastmark);
             }
-            RETURN_FAILURE;
+            RETURN_FAILURE(("1061"));
 
         TARGET(SRE_OP_POSSESSIVE_REPEAT_ONE):
             /* match repeated sequence (maximizing regexp) without
@@ -1076,7 +1103,7 @@ dispatch:
                    ptr, pattern[1], pattern[2]));
 
             if (ptr + pattern[1] > end) {
-                RETURN_FAILURE; /* cannot match */
+                RETURN_FAILURE(("cannot match")); /* cannot match */
             }
 
             state->ptr = ptr;
@@ -1094,7 +1121,7 @@ dispatch:
 
             /* Test for not enough repetitions in match */
             if (ctx->count < (Py_ssize_t) pattern[1]) {
-                RETURN_FAILURE;
+                RETURN_FAILURE(("Not enough repetitions in match, expected %lld, got %lld", (Py_ssize_t) pattern[1], ctx->count));
             }
 
             /* Update the pattern to point to the next op code */
@@ -1142,7 +1169,7 @@ dispatch:
                 RETURN_ON_ERROR(ret);
                 RETURN_SUCCESS;
             }
-            RETURN_FAILURE;
+            RETURN_FAILURE(("1145"));
 
         TARGET(SRE_OP_MAX_UNTIL):
             /* maximizing repeat */
@@ -1173,7 +1200,7 @@ dispatch:
                 }
                 ctx->u.rep->count = ctx->count-1;
                 state->ptr = ptr;
-                RETURN_FAILURE;
+                RETURN_FAILURE(("1176"));
             }
 
             if ((ctx->count < (Py_ssize_t) ctx->u.rep->pattern[2] ||
@@ -1209,7 +1236,7 @@ dispatch:
 
             RETURN_ON_SUCCESS(ret);
             state->ptr = ptr;
-            RETURN_FAILURE;
+            RETURN_FAILURE(("1212"));
 
         TARGET(SRE_OP_MIN_UNTIL):
             /* minimizing repeat */
@@ -1237,7 +1264,7 @@ dispatch:
                 }
                 ctx->u.rep->count = ctx->count-1;
                 state->ptr = ptr;
-                RETURN_FAILURE;
+                RETURN_FAILURE(("1240"));
             }
 
             /* see if the tail matches */
@@ -1266,7 +1293,7 @@ dispatch:
             if ((ctx->count >= (Py_ssize_t) ctx->u.rep->pattern[2]
                 && ctx->u.rep->pattern[2] != SRE_MAXREPEAT) ||
                 state->ptr == ctx->u.rep->last_ptr)
-                RETURN_FAILURE;
+                RETURN_FAILURE(("1269"));
 
             ctx->u.rep->count = ctx->count;
             /* zero-width match protection */
@@ -1281,7 +1308,7 @@ dispatch:
             }
             ctx->u.rep->count = ctx->count-1;
             state->ptr = ptr;
-            RETURN_FAILURE;
+            RETURN_FAILURE(("1284"));
 
         TARGET(SRE_OP_POSSESSIVE_REPEAT):
             /* create possessive repeat contexts. */
@@ -1322,7 +1349,7 @@ dispatch:
                     /* Restore state->repeat */
                     state->repeat = ctx->u.rep->prev;
                     repeat_pool_free(state, ctx->u.rep);
-                    RETURN_FAILURE;
+                    RETURN_FAILURE(("1325"));
                 }
             }
 
@@ -1427,7 +1454,7 @@ dispatch:
             if (ret == 0) {
                 /* Atomic Group failed to Match. */
                 state->ptr = ptr;
-                RETURN_FAILURE;
+                RETURN_FAILURE(("1430"));
             }
 
             /* Evaluate Tail */
@@ -1444,15 +1471,15 @@ dispatch:
             {
                 int groupref = pattern[0] * 2;
                 if (groupref >= state->lastmark) {
-                    RETURN_FAILURE;
+                    RETURN_FAILURE(("1447"));
                 } else {
                     SRE_CHAR* p = (SRE_CHAR*) state->mark[groupref];
                     SRE_CHAR* e = (SRE_CHAR*) state->mark[groupref+1];
                     if (!p || !e || e < p)
-                        RETURN_FAILURE;
+                        RETURN_FAILURE(("1452"));
                     while (p < e) {
                         if (ptr >= end || *ptr != *p)
-                            RETURN_FAILURE;
+                            RETURN_FAILURE(("1455"));
                         p++;
                         ptr++;
                     }
@@ -1468,16 +1495,16 @@ dispatch:
             {
                 int groupref = pattern[0] * 2;
                 if (groupref >= state->lastmark) {
-                    RETURN_FAILURE;
+                    RETURN_FAILURE(("1471"));
                 } else {
                     SRE_CHAR* p = (SRE_CHAR*) state->mark[groupref];
                     SRE_CHAR* e = (SRE_CHAR*) state->mark[groupref+1];
                     if (!p || !e || e < p)
-                        RETURN_FAILURE;
+                        RETURN_FAILURE(("1476"));
                     while (p < e) {
                         if (ptr >= end ||
                             sre_lower_ascii(*ptr) != sre_lower_ascii(*p))
-                            RETURN_FAILURE;
+                            RETURN_FAILURE(("1480"));
                         p++;
                         ptr++;
                     }
@@ -1493,16 +1520,16 @@ dispatch:
             {
                 int groupref = pattern[0] * 2;
                 if (groupref >= state->lastmark) {
-                    RETURN_FAILURE;
+                    RETURN_FAILURE(("1496"));
                 } else {
                     SRE_CHAR* p = (SRE_CHAR*) state->mark[groupref];
                     SRE_CHAR* e = (SRE_CHAR*) state->mark[groupref+1];
                     if (!p || !e || e < p)
-                        RETURN_FAILURE;
+                        RETURN_FAILURE(("1501"));
                     while (p < e) {
                         if (ptr >= end ||
                             sre_lower_unicode(*ptr) != sre_lower_unicode(*p))
-                            RETURN_FAILURE;
+                            RETURN_FAILURE(("1505"));
                         p++;
                         ptr++;
                     }
@@ -1518,16 +1545,16 @@ dispatch:
             {
                 int groupref = pattern[0] * 2;
                 if (groupref >= state->lastmark) {
-                    RETURN_FAILURE;
+                    RETURN_FAILURE(("1521"));
                 } else {
                     SRE_CHAR* p = (SRE_CHAR*) state->mark[groupref];
                     SRE_CHAR* e = (SRE_CHAR*) state->mark[groupref+1];
                     if (!p || !e || e < p)
-                        RETURN_FAILURE;
+                        RETURN_FAILURE(("1526"));
                     while (p < e) {
                         if (ptr >= end ||
                             sre_lower_locale(*ptr) != sre_lower_locale(*p))
-                            RETURN_FAILURE;
+                            RETURN_FAILURE(("1530"));
                         p++;
                         ptr++;
                     }
@@ -1563,7 +1590,7 @@ dispatch:
             TRACE(("|%p|%p|ASSERT %d\n", pattern,
                    ptr, pattern[1]));
             if ((uintptr_t)(ptr - (SRE_CHAR *)state->beginning) < pattern[1])
-                RETURN_FAILURE;
+                RETURN_FAILURE(("1566"));
             state->ptr = ptr - pattern[1];
             DO_JUMP0(JUMP_ASSERT, jump_assert, pattern+2);
             RETURN_ON_FAILURE(ret);
@@ -1586,7 +1613,7 @@ dispatch:
                     if (state->repeat)
                         MARK_POP_DISCARD(ctx->lastmark);
                     RETURN_ON_ERROR(ret);
-                    RETURN_FAILURE;
+                    RETURN_FAILURE(("1589"));
                 }
                 if (state->repeat)
                     MARK_POP(ctx->lastmark);
@@ -1598,7 +1625,7 @@ dispatch:
         TARGET(SRE_OP_FAILURE):
             /* immediate failure */
             TRACE(("|%p|%p|FAILURE\n", pattern, ptr));
-            RETURN_FAILURE;
+            RETURN_FAILURE(("immediate failure"));
 
 #if !USE_COMPUTED_GOTOS
         default:
