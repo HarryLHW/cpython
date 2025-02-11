@@ -587,8 +587,8 @@ class StackSummary(list):
                 # only display first line, last line, and lines around anchor start/end
                 significant_lines = {0, len(all_lines) - 1}
 
-                anchors_left_end_offset = 0
-                anchors_right_start_offset = 0
+                dp_anchors_left_end_offset = 0
+                dp_anchors_right_start_offset = 0
                 primary_char = "^"
                 secondary_char = "^"
                 if anchors:
@@ -602,10 +602,10 @@ class StackSummary(list):
                         anchors_right_start_offset += start_offset
 
                     # account for display width
-                    anchors_left_end_offset = _display_width(
+                    dp_anchors_left_end_offset = _display_width(
                         all_lines[anchors.left_end_lineno], offset=anchors_left_end_offset
                     )
-                    anchors_right_start_offset = _display_width(
+                    dp_anchors_right_start_offset = _display_width(
                         all_lines[anchors.right_start_lineno], offset=anchors_right_start_offset
                     )
 
@@ -627,50 +627,49 @@ class StackSummary(list):
                     result.append(all_lines[lineno] + "\n")
                     if not show_carets:
                         return
-                    num_spaces = len(all_lines[lineno]) - len(all_lines[lineno].lstrip())
-                    carets = []
-                    num_carets = dp_end_offset if lineno == len(all_lines) - 1 else _display_width(all_lines[lineno])
-                    # compute caret character for each position
-                    for col in range(num_carets):
-                        if col < num_spaces or (lineno == 0 and col < dp_start_offset):
-                            # before first non-ws char of the line, or before start of instruction
-                            carets.append(' ')
-                        elif anchors and (
-                            lineno > anchors.left_end_lineno or
-                            (lineno == anchors.left_end_lineno and col >= anchors_left_end_offset)
-                        ) and (
-                            lineno < anchors.right_start_lineno or
-                            (lineno == anchors.right_start_lineno and col < anchors_right_start_offset)
-                        ):
-                            # within anchors
-                            carets.append(secondary_char)
-                        else:
-                            carets.append(primary_char)
                     if colorize:
-                        # Replace the previous line with a red version of it only in the parts covered
-                        # by the carets.
+                        primary_color = ANSIColors.RED
+                        secondary_color = ANSIColors.BOLD_RED if primary_char != secondary_char else primary_color
+                        def append_primary(_list, content):
+                            if not content:
+                                return
+                            _list.append(primary_color)
+                            _list.append(content)
+                            _list.append(ANSIColors.RESET)
+                        def append_secondary(_list, content):
+                            if not content:
+                                return
+                            _list.append(secondary_color)
+                            _list.append(content)
+                            _list.append(ANSIColors.RESET)
+
                         line = result[-1]
-                        colorized_line_parts = []
-                        colorized_carets_parts = []
-
-                        for color, group in itertools.groupby(itertools.zip_longest(line, carets, fillvalue=""), key=lambda x: x[1]):
-                            caret_group = list(group)
-                            if color == "^":
-                                colorized_line_parts.append(ANSIColors.BOLD_RED + "".join(char for char, _ in caret_group) + ANSIColors.RESET)
-                                colorized_carets_parts.append(ANSIColors.BOLD_RED + "".join(caret for _, caret in caret_group) + ANSIColors.RESET)
-                            elif color == "~":
-                                colorized_line_parts.append(ANSIColors.RED + "".join(char for char, _ in caret_group) + ANSIColors.RESET)
-                                colorized_carets_parts.append(ANSIColors.RED + "".join(caret for _, caret in caret_group) + ANSIColors.RESET)
-                            else:
-                                colorized_line_parts.append("".join(char for char, _ in caret_group))
-                                colorized_carets_parts.append("".join(caret for _, caret in caret_group))
-
-                        colorized_line = "".join(colorized_line_parts)
-                        colorized_carets = "".join(colorized_carets_parts)
-                        result[-1] = colorized_line
-                        result.append(colorized_carets + "\n")
+                        line_parts = [line[:start_offset]]
+                        if anchors:
+                            append_primary(line_parts, line[start_offset:anchors_left_end_offset])
+                            append_secondary(line_parts, line[anchors_left_end_offset:anchors_right_start_offset])
+                            append_primary(line_parts, line[anchors_right_start_offset:end_offset])
+                        else:
+                            append_primary(line_parts, line[start_offset:end_offset])
+                        line_parts.append(line[end_offset:])
+                        result[-1] = "".join(line_parts)
                     else:
-                        result.append("".join(carets) + "\n")
+                        append_primary = append_secondary = list.append
+
+                    num_spaces = len(all_lines[lineno]) - len(all_lines[lineno].lstrip())
+                    num_carets = dp_end_offset if lineno == len(all_lines) - 1 else _display_width(all_lines[lineno])
+                    if lineno == 0 and dp_start_offset > num_spaces:
+                        num_spaces = dp_start_offset
+                    carets = [' ' * num_spaces]
+                    if anchors and anchors.left_end_lineno <= lineno <= anchors.right_start_lineno:
+                        anchors_start = num_spaces if lineno > anchors.left_end_lineno else dp_anchors_left_end_offset
+                        anchors_end = num_carets if lineno < anchors.right_start_lineno else dp_anchors_right_start_offset
+                        append_primary(carets, primary_char * (anchors_start - num_spaces))
+                        append_secondary(carets, secondary_char * (anchors_end - anchors_start))
+                        append_primary(carets, primary_char * (num_carets - anchors_end))
+                    else:
+                        append_primary(carets, primary_char * (num_carets - num_spaces))
+                    result.append("".join(carets) + "\n")
 
                 # display significant lines
                 sig_lines_list = sorted(significant_lines)
