@@ -419,8 +419,8 @@ loops that truncate the stream.
 
    The returned group is itself an iterator that shares the underlying iterable
    with :func:`groupby`.  Because the source is shared, when the :func:`groupby`
-   object is advanced, the previous group is no longer visible.  So, if that data
-   is needed later, it should be stored as a list::
+   object is advanced, the previous group's data are no longer visible.  So, if
+   these data are needed later, they should be stored as a list::
 
       groups = []
       uniquekeys = []
@@ -429,6 +429,14 @@ loops that truncate the stream.
           groups.append(list(g))      # Store group iterator as a list
           uniquekeys.append(k)
 
+   Note that operations such as `list(groupby(iterable))` always produce empty groups:
+
+   .. doctest::
+
+      >>> [(key, list(group)) for key, group in groupby('aabbbcccc')]
+      [('a', ['a', 'a']), ('b', ['b', 'b', 'b']), ('c', ['c', 'c', 'c', 'c'])]
+      >>> [(key, list(group)) for key, group in list(groupby('aabbbcccc'))]
+      [('a', []), ('b', []), ('c', [])]
    :func:`groupby` is roughly equivalent to::
 
       def groupby(iterable, key=None):
